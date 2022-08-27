@@ -1,0 +1,10 @@
+dependencies:
+  ar:
+    url: github.com/toitlang/pkg-ar
+    version: ^1.0.0
+  esp_serial_flasher:
+    url: github.com/mikkeldamsgaard/pkg-esp-serial-flasher
+    version: ^1.0.0
+  host:
+    url: github.com/toitlang/pkg-host
+    version: ^1.7.1

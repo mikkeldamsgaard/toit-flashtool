@@ -1,0 +1,28 @@
+prefixes:
+  ar: pkg-ar
+  esp_serial_flasher: pkg-esp-serial-flasher
+  host: pkg-host
+packages:
+  pkg-ar:
+    url: github.com/toitlang/pkg-ar
+    version: 1.0.0
+    hash: 175bcdfd59b2597c0825ef8765a20498a7e6a2db
+  pkg-binary-packing:
+    url: github.com/mikkeldamsgaard/pkg-binary-packing
+    version: 1.0.0
+    hash: ed261c992297972f51ba8f682c4292f34b52819b
+  pkg-esp-serial-flasher:
+    url: github.com/mikkeldamsgaard/pkg-esp-serial-flasher
+    version: 1.0.0
+    hash: 3efb5022211ad945bc6d4d575190baa9c59e2256
+    prefixes:
+      packing: pkg-binary-packing
+      slip: pkg-slip
+  pkg-host:
+    url: github.com/toitlang/pkg-host
+    version: 1.7.1
+    hash: 6b017ad10563263080bba6acde387ceebc13270b
+  pkg-slip:
+    url: github.com/mikkeldamsgaard/pkg-slip
+    version: 1.0.1
+    hash: 51a7ff15b9f481392818651c8256d9e610ccbff4
