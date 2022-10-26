@@ -13,8 +13,8 @@ packages:
     hash: ed261c992297972f51ba8f682c4292f34b52819b
   pkg-esp-serial-flasher:
     url: github.com/mikkeldamsgaard/pkg-esp-serial-flasher
-    version: 1.0.0
-    hash: 3efb5022211ad945bc6d4d575190baa9c59e2256
+    version: 2.0.1
+    hash: 6eb4d82883a7b33d192b3c5e76e89b51f26c9d96
     prefixes:
       packing: pkg-binary-packing
       slip: pkg-slip

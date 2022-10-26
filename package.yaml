@@ -4,7 +4,7 @@ dependencies:
     version: ^1.0.0
   esp_serial_flasher:
     url: github.com/mikkeldamsgaard/pkg-esp-serial-flasher
-    version: ^1.0.0
+    version: ^2.0.1
   host:
     url: github.com/toitlang/pkg-host
     version: ^1.7.1

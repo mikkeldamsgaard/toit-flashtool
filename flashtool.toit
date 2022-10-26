@@ -1,4 +1,5 @@
 import esp_serial_flasher show *
+import esp_serial_flasher.stubs_data
 
 import reader show BufferedReader
 import bytes
@@ -12,11 +13,11 @@ import host.directory
 
 import uart
 
-BLOCKSIZE ::= 0x1000
+import zlib
 
 class NamedPortFlasher implements HostAdapter:
   port_name/string
-  port/uart.ConfigurableDevicePort? := null
+  port/uart.HostPort? := null
 
   constructor .port_name:
 
@@ -39,24 +40,24 @@ class NamedPortFlasher implements HostAdapter:
   set_rts_dtr_ rts/bool dtr/bool:
     flags := port.read_control_flags
     if dtr:
-      flags |= uart.ConfigurableDevicePort.CONTROL_FLAG_DTR
+      flags |= uart.HostPort.CONTROL_FLAG_DTR
     else:
-      flags &= ~uart.ConfigurableDevicePort.CONTROL_FLAG_DTR
+      flags &= ~uart.HostPort.CONTROL_FLAG_DTR
     if rts:
-      flags |= uart.ConfigurableDevicePort.CONTROL_FLAG_RTS
+      flags |= uart.HostPort.CONTROL_FLAG_RTS
     else:
-      flags &= ~uart.ConfigurableDevicePort.CONTROL_FLAG_RTS
+      flags &= ~uart.HostPort.CONTROL_FLAG_RTS
     port.set_control_flags flags
 
   set_rts_ val/bool:
-    port.set_control_flag uart.ConfigurableDevicePort.CONTROL_FLAG_RTS val
+    port.set_control_flag uart.HostPort.CONTROL_FLAG_RTS val
 
   set_dtr_ val/bool:
-    port.set_control_flag uart.ConfigurableDevicePort.CONTROL_FLAG_DTR val
+    port.set_control_flag uart.HostPort.CONTROL_FLAG_DTR val
 
-  connect -> uart.ConfigurableDevicePort:
-    port = uart.ConfigurableDevicePort port_name --baud_rate=ESP_SERIAL_DEFAULT_BAUDRATE
-    port.set_control_flag uart.ConfigurableDevicePort.CONTROL_FLAG_DTR | uart.ConfigurableDevicePort.CONTROL_FLAG_RTS false
+  connect -> uart.HostPort:
+    port = uart.HostPort port_name --baud_rate=ESP_SERIAL_DEFAULT_BAUDRATE
+    port.set_control_flag uart.HostPort.CONTROL_FLAG_DTR | uart.HostPort.CONTROL_FLAG_RTS false
     return port
 
 usage:
@@ -67,6 +68,8 @@ usage:
       options:
         --port <port>          - Serial port
         --baud <baud_rate>     - Baud rate
+        --trace                - Trace lowlevel serial commands
+        --no-stub              - Disables loading stub
 
       command:
         version                - prints version
@@ -100,22 +103,18 @@ assert_args_ args idx:
 */
 read_exactly_n_bytes reader/BufferedReader num_bytes/int -> ByteArray:
   if reader.can_ensure num_bytes:
-    res := reader.read --max_size=num_bytes
-    while res.size < num_bytes:
-      res = res + (reader.read --max_size=num_bytes - res.size)
-
-    return res
+    return reader.read_bytes num_bytes
   else:
-    return reader.read --max_size=num_bytes
+    return reader.read_bytes reader.buffered
 
 flasher/Flasher? := null
 target/Target? := null
 
-connect port/string baud/int:
+connect:
   write_on_stdout_ "Connecting: " false
-  e := catch:
+  e := catch --trace:
     host := NamedPortFlasher port
-    flasher = Flasher --host=host
+    flasher = Flasher --host=host --trace=trace --stubs=(stub?stubs_data.ALL_STUBS:[])
     target = flasher.connect --print_progress
     target.change_baud_rate baud
 
@@ -131,7 +130,7 @@ connect port/string baud/int:
 
   print "Connected to target: $target.chip.name"
 
-flash port/string baud/int args/List:
+flash args/List:
   current_arg := 0
   blocks := [] // List of lists, elements have [ adress, filename, size, Lambda returning a buffered reader for the content]
 
@@ -171,7 +170,7 @@ flash port/string baud/int args/List:
       print "Missing argument to flash"
       usage
 
-  connect port baud
+  connect
   blocks.do: | block/List |
     start_address := block[0]
     file_name := block[1]
@@ -181,13 +180,15 @@ flash port/string baud/int args/List:
     start := Time.monotonic_us
 
     write_on_stdout_ "Flash initializing..." false
-    image_flasher := target.start_flash start_address file_size BLOCKSIZE
+
+    image_flasher := target.start_flash start_address file_size
 
     written := 0
     while true:
-      buf := read_exactly_n_bytes buffered_reader BLOCKSIZE
+      buf := read_exactly_n_bytes buffered_reader image_flasher.block_size
+      if not buf: break
       image_flasher.write buf
-      if buf.size < BLOCKSIZE:
+      if buf.size < image_flasher.block_size:
         break
       if written == 0:
         write_on_stdout_ "\r                      " false
@@ -199,20 +200,20 @@ flash port/string baud/int args/List:
     image_flasher.end
     end := Time.monotonic_us
     elapsed/int := end-start
-    print "Wrote $(file_size/1024)kb in $(%.2f elapsed.to_float/1000000) seconds. Effective baud rate: $(file_size*8*1_000/elapsed) kbps"
+    print "Wrote $(file_size/1024)kb in $(%.2f elapsed.to_float/1000000) seconds. Effective $(file_size*8*1_000/elapsed) kbps"
 
-erase port/string baud/int:
-  connect port baud
+erase:
+  connect
   flash_size := target.detect_flash_size
   print "Erasing entire flash. This might take a while"
-  target.start_flash 0 flash_size BLOCKSIZE flash_size
+  target.start_flash 0 flash_size --flash_size=flash_size
   print "Done"
 
 parse_hex str/string -> int:
   if str.starts_with "0x": str = str[2..]
   return int.parse --radix=16 str
 
-erase_partition port/string baud/int args/List:
+erase_partition args/List:
   if args.size != 2:
     print "erase parition needs exactly two arguments"
     usage
@@ -234,23 +235,26 @@ erase_partition port/string baud/int args/List:
         address := parse_hex records[3].trim
         size := parse_hex records[4].trim
 
-        connect port baud
+        connect
         print "Deleting partition $partition_name. From address 0x$(%x address) and size 0x$(%x size)"
-        target.start_flash address size BLOCKSIZE
+        target.start_flash address size
         print "Done"
 
         exit 0
 
   print "Partition $partition_name not found in partition file"
 
+trace/bool := false
+stub/bool := true
+port/string? := null
+baud/int := 115200
+
 main args/List:
   if args.size == 0:
     usage
 
-  port/string? := null
-  baud/int := 115200
   command/string? := null
-
+  
   current_arg := 0
 
   while current_arg < args.size:
@@ -266,9 +270,14 @@ main args/List:
         baud = int.parse (arg_ args current_arg + 1)
         current_arg += 2
 
-        if baud > 930000:
-          print "Currently, highest supported baud rate is 930000"
-          exit 1
+        continue
+      else if option == "trace":
+        trace = true
+        current_arg += 1
+        continue
+      else if option == "no-stub":
+        stub = false
+        current_arg += 1
         continue
       else:
         print "Unknown option: $option"
@@ -276,16 +285,27 @@ main args/List:
     else if not command:
       command = arg_ args current_arg
       if command == "flash":
-        flash port baud args[current_arg + 1..]
+        if not port:
+          print "Must specify port when flashing"
+          exit 1
+        flash args[current_arg + 1..]
         break
       else if command == "version":
         print "flashtool version 1.0"
         exit 0
       else if command == "erase":
-        erase port baud
+        if not port:
+          print "Must specify port when erasing"
+          exit 1
+        stub = false
+        erase
         break
       else if command == "erase_partition":
-        erase_partition port baud args[current_arg + 1..]
+        if not port:
+          print "Must specify port when erasing"
+          exit 1
+        stub = false
+        erase_partition args[current_arg + 1..]
         break
       else:
         print "Unknown command $command"
@@ -298,4 +318,5 @@ main args/List:
     usage
 
   exit 0
+
 
